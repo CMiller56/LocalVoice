@@ -1,0 +1,16 @@
+# Text-to-Speech (TTS) dependencies for LocalVoice
+# Use with: pip install -r voice-tts-requirements.txt
+
+# === RECOMMENDED (fast, high quality, excellent for offline use) ===
+piper-tts>=1.2.0
+
+# Audio playback (optional but recommended for .speak() method)
+sounddevice>=0.4.6
+numpy>=1.24
+
+# === OPTIONAL ===
+# For advanced users who want to manage downloads manually
+# huggingface-hub
+
+# Note: For full offline use, pre-download your chosen Piper voice model
+# and load it with model_dir=...
