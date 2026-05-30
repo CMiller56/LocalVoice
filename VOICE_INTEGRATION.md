@@ -147,7 +147,7 @@ Use `st.cache_resource` for the manager and always run synthesis/transcription v
 # Then copy the folder
 
 synthesizer = VoiceSynthesizer(
-    model_dir="/opt/voices/en_US-kathleen-medium"   # contains model.onnx + .json
+    model_dir="/opt/models/piper/en_US-kathleen-medium"   # contains model.onnx + .json
 )
 ```
 
@@ -156,7 +156,7 @@ synthesizer = VoiceSynthesizer(
 ```python
 transcriber = VoiceTranscriber(
     model_size="small",
-    download_root="/opt/whisper-models"
+    download_root="/opt/models/whisper"
 )
 ```
 
@@ -257,5 +257,10 @@ The two modules were built to work as a pair.
 - What is your target latency for TTS playback?
 - Are you deploying in air-gapped or low-connectivity environments?
 - Will this run on CPU-only hardware?
+- Do you have strict CUDA/driver version requirements or a massive existing dependency tree?
 
-This guide + the docstrings in both Python files should give another LLM enough context to produce a high-quality integration. Update this document as you discover new patterns in your specific application.
+For large corporate or constrained environments, also read:
+
+→ [CORPORATE_DEPLOYMENT.md](./CORPORATE_DEPLOYMENT.md)
+
+This guide + the docstrings in both Python files + the corporate deployment guide should give another LLM enough context to produce a high-quality integration even in difficult environments. Update this document as you discover new patterns in your specific application.

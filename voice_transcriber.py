@@ -1,4 +1,3 @@
-"""
 Self-Hosted Voice-to-Text (Speech-to-Text) Module using Whisper
 ================================================================
 
@@ -10,19 +9,15 @@ self-hosted use).
 
 INSTALLATION
 ------------
-    pip install faster-whisper sounddevice numpy scipy
+    pip install faster-whisper numpy
+
+    # Optional (for microphone input):
+    # pip install sounddevice
 
     # For MP3/M4A/OGG/etc (not required for WAV files):
     #   Ubuntu/Debian:  sudo apt-get install ffmpeg
     #   macOS:          brew install ffmpeg
     #   Windows:        https://ffmpeg.org/download.html (add to PATH)
-
-    # Optional but recommended for NVIDIA GPUs:
-    #   pip install ctranslate2  (usually pulled in automatically)
-
-ALTERNATIVE (simpler but slower): openai-whisper
-    pip install openai-whisper sounddevice numpy scipy
-    (still requires ffmpeg for non-WAV files)
 
 MODEL SIZE RECOMMENDATIONS
 --------------------------
@@ -71,25 +66,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
-import numpy as np
+# numpy is imported lazily in methods to reduce startup cost in large applications
+np = None  # type: ignore
 
-try:
-    from faster_whisper import WhisperModel
-    FASTER_WHISPER_AVAILABLE = True
-except ImportError:
-    FASTER_WHISPER_AVAILABLE = False
-
-try:
-    import sounddevice as sd
-    SOUNDDEVICE_AVAILABLE = True
-except ImportError:
-    SOUNDDEVICE_AVAILABLE = False
-
-try:
-    from scipy.io.wavfile import write as write_wav
-    SCIPY_AVAILABLE = True
-except ImportError:
-    SCIPY_AVAILABLE = False
+def _get_numpy():
+    global np
+    if np is None:
+        import numpy as _np
+        np = _np
+    return np
 
 
 @dataclass
@@ -151,6 +136,25 @@ class VoiceTranscriber:
             )
 
         print(f"[VoiceTranscriber] Loading model '{model_size}' (device={device}, compute={compute_type})...")
+
+        # --- CUDA version awareness for constrained environments ---
+        if device in ("cuda", "auto"):
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    cuda_version = torch.version.cuda
+                    print(f"[VoiceTranscriber] CUDA available. PyTorch CUDA version: {cuda_version}")
+                    print("[VoiceTranscriber] WARNING: In corporate / pinned environments, "
+                          "ensure you installed PyTorch with the exact CUDA version your drivers support "
+                          "*before* installing faster-whisper.")
+                else:
+                    if device == "cuda":
+                        print("[VoiceTranscriber] WARNING: device='cuda' was requested but CUDA is not available. "
+                              "Falling back to CPU. Check your PyTorch installation and CUDA drivers.")
+            except Exception:
+                pass  # torch might not be importable yet or in some stripped envs
+        # -----------------------------------------------------------
+
         start = time.time()
 
         self.model = WhisperModel(
@@ -162,7 +166,8 @@ class VoiceTranscriber:
             cpu_threads=cpu_threads,
         )
         self.model_size = model_size
-        self.device = self.model.device
+        # faster-whisper does not expose .device directly, so we track it
+        self.device = device if device != "auto" else "cpu"  # simplified tracking
 
         elapsed = time.time() - start
         print(f"[VoiceTranscriber] Model loaded in {elapsed:.1f}s on {self.device}")
@@ -236,6 +241,26 @@ class VoiceTranscriber:
             segments=raw_segments if return_segments else None,
         )
 
+    def _write_temp_wav(self, audio, sample_rate: int) -> str:
+        """Write float32 audio to a temporary WAV file using only the standard library."""
+        import wave
+
+        _np = _get_numpy()
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        # Convert to int16
+        audio_int16 = _np.int16(_np.clip(audio, -1.0, 1.0) * 32767)
+
+        with wave.open(tmp_path, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_int16.tobytes())
+
+        return tmp_path
+
     def transcribe_audio_data(
         self,
         audio: np.ndarray,
@@ -260,11 +285,10 @@ class VoiceTranscriber:
         Returns:
             TranscriptionResult
         """
-        if not SCIPY_AVAILABLE:
-            raise ImportError("scipy is required for transcribe_audio_data. pip install scipy")
+        _np = _get_numpy()
 
         # Convert to float32 mono and normalize
-        audio = np.asarray(audio, dtype=np.float32)
+        audio = _np.asarray(audio, dtype=_np.float32)
 
         if audio.ndim > 1:
             # Convert stereo to mono by averaging channels
@@ -272,7 +296,7 @@ class VoiceTranscriber:
 
         # Normalize if coming in as int16 or other range
         if audio.max() > 1.0 or audio.min() < -1.0:
-            audio = audio / 32768.0 if audio.dtype != np.float32 else audio
+            audio = audio / 32768.0 if audio.dtype != _np.float32 else audio
 
         # Whisper works best at 16kHz. Resample if needed (simple but okay for now).
         # For production you may want to use librosa or soxr for high-quality resampling.
@@ -281,18 +305,14 @@ class VoiceTranscriber:
             # Very basic linear resample (good enough for many cases)
             duration = len(audio) / sample_rate
             new_length = int(duration * target_sr)
-            audio = np.interp(
-                np.linspace(0, len(audio), new_length),
-                np.arange(len(audio)),
+            audio = _np.interp(
+                _np.linspace(0, len(audio), new_length),
+                _np.arange(len(audio)),
                 audio
-            ).astype(np.float32)
+            ).astype(_np.float32)
 
-        # Write to a temporary WAV file (most reliable path for faster-whisper)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-            # Scale to int16 for standard WAV
-            audio_int16 = np.int16(np.clip(audio, -1.0, 1.0) * 32767)
-            write_wav(tmp_path, target_sr, audio_int16)
+        # Write to a temporary WAV file using only stdlib
+        tmp_path = self._write_temp_wav(audio, target_sr)
 
         try:
             result = self.transcribe_file(tmp_path, language=language, **kwargs)
@@ -377,8 +397,9 @@ class VoiceTranscriber:
                 chunk, _ = stream.read(chunk_size)
                 recorded_chunks.append(chunk)
 
+                _np = _get_numpy()
                 # Simple energy-based VAD
-                energy = np.sqrt(np.mean(chunk**2))
+                energy = _np.sqrt(_np.mean(chunk**2))
                 if energy < silence_threshold:
                     silent_chunks += 1
                 else:
@@ -390,7 +411,8 @@ class VoiceTranscriber:
                     print("[VoiceTranscriber] Silence detected, stopping recording.")
                     break
 
-        audio = np.concatenate(recorded_chunks, axis=0).flatten()
+        _np = _get_numpy()
+        audio = _np.concatenate(recorded_chunks, axis=0).flatten()
         return self.transcribe_audio_data(audio, sample_rate, language=language)
 
     # ------------------------------------------------------------------ #

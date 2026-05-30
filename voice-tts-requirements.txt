@@ -1,16 +1,24 @@
 # Text-to-Speech (TTS) dependencies for LocalVoice
-# Use with: pip install -r voice-tts-requirements.txt
+#
+# === IMPORTANT NOTES FOR CONDA / LARGE CORPORATE ENVIRONMENTS ===
+#
+# - piper-tts has no conda package. You must: pip install piper-tts
+# - For sounddevice on conda, prefer:
+#     conda install python-sounddevice -c conda-forge
+#
+# - There is **no auto-download** in this version.
+#   You must manually download voices from:
+#   https://huggingface.co/rhasspy/piper-voices
+#
+# Recommended minimal install:
+#   pip install piper-tts numpy
+#
+# With optional playback:
+#   pip install sounddevice
+#   # or use conda for sounddevice as noted above
 
-# === RECOMMENDED (fast, high quality, excellent for offline use) ===
 piper-tts>=1.2.0
-
-# Audio playback (optional but recommended for .speak() method)
-sounddevice>=0.4.6
 numpy>=1.24
 
-# === OPTIONAL ===
-# For advanced users who want to manage downloads manually
-# huggingface-hub
-
-# Note: For full offline use, pre-download your chosen Piper voice model
-# and load it with model_dir=...
+# Optional (only for .speak() convenience method)
+sounddevice>=0.4.6

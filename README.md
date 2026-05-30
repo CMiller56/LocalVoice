@@ -72,7 +72,11 @@ Both modules are designed to work completely offline after initial setup:
 - **STT**: Download your chosen Whisper model once and use `download_root`.
 - **TTS**: Download a Piper voice once and load it with `model_dir="/path/to/voice"`.
 
-Full instructions are available in each module's documentation.
+**For corporate, constrained, or large environments**, see the dedicated guide:
+
+→ [CORPORATE_DEPLOYMENT.md](./CORPORATE_DEPLOYMENT.md)
+
+This covers CUDA version pinning, conda installation quirks, recommended directory layouts, and environment size management.
 
 ---
 
@@ -81,6 +85,8 @@ Full instructions are available in each module's documentation.
 The default TTS voice (`en_US-kathleen-medium`) was chosen as a warm, mature female voice that many people find pleasant for longer interactions.
 
 Other good options are listed in `voice_synthesizer.py`.
+
+**Note:** While Piper is the current backend, Kokoro-82M (particularly the ONNX version) is documented as a potential future alternative if environment size or dependency constraints become more acute. See `CORPORATE_DEPLOYMENT.md` for details.
 
 ---
 
@@ -104,11 +110,12 @@ See [VOICE_INTEGRATION.md](./VOICE_INTEGRATION.md) for patterns covering:
 LocalVoice/
 ├── voice_transcriber.py          # STT module
 ├── voice_synthesizer.py          # TTS module
+├── CORPORATE_DEPLOYMENT.md       # Guidance for constrained environments
 ├── VOICE_INTEGRATION.md          # Detailed integration guide
 ├── voice-requirements.txt
 ├── voice-tts-requirements.txt
 ├── README.md
-├── LICENSE
+└── LICENSE
 ```
 
 ---

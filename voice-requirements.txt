@@ -1,21 +1,25 @@
 # Self-hosted Voice-to-Text (Whisper) dependencies
-# Use with: pip install -r voice-requirements.txt
+#
+# === IMPORTANT FOR CONDA / CORPORATE ENVIRONMENTS ===
+#
+# - faster-whisper pulls in torch + ctranslate2 (this is the biggest part of the size).
+# - For sounddevice on conda: conda install python-sounddevice -c conda-forge
+#
+# To control CUDA version (critical when you have driver limitations):
+#   conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+#   pip install faster-whisper
+#
+# Minimal core:
+#   pip install faster-whisper numpy
 
-# === RECOMMENDED (fastest & most production-friendly) ===
 faster-whisper>=1.0.0
-
-# Audio handling
-sounddevice>=0.4.6
 numpy>=1.24
-scipy>=1.10
 
-# === OPTIONAL but very useful ===
-# For high-quality resampling when feeding raw audio at non-16kHz rates:
-# soxr
+# Optional
+sounddevice>=0.4.6
 
-# For even better VAD in advanced streaming setups:
-# webrtcvad-wheels    (or silero-vad via torch)
-
-# === ALTERNATIVE (simpler reference implementation) ===
+# === ALTERNATIVE (simpler reference) ===
 # openai-whisper
-# (use only one of faster-whisper or openai-whisper, not both)
+# (use only one of faster-whisper or openai-whisper)
+
+# Note: scipy is no longer a dependency.

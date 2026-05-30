@@ -1,4 +1,3 @@
-"""
 Self-Hosted Text-to-Speech (TTS) Module using Piper
 ====================================================
 
@@ -8,39 +7,37 @@ larger Python applications.
 
 Primary backend: Piper TTS (fast, high quality, excellent for offline use).
 
-INSTALLATION
-------------
-    pip install piper-tts sounddevice numpy
+INSTALLATION (Conda / Corporate Environments)
+-----------------------------------------------
+Core (recommended minimal):
+    conda install python-sounddevice numpy -c conda-forge
+    pip install piper-tts
 
-    # No system ffmpeg is required for Piper (unlike some other TTS systems).
+For fully offline / air-gapped use (strongly recommended):
+    1. Download a voice manually from: https://huggingface.co/rhasspy/piper-voices
+    2. Load it with: VoiceSynthesizer(model_dir="/path/to/downloaded_voice")
 
-AUTO-DOWNLOAD BEHAVIOR
-----------------------
-By default, the module will automatically download a recommended high-quality
-female voice on first use (if no local model is provided). This is convenient
-for development.
+Note: `piper-tts` must be installed via pip (no conda package currently).
 
-For fully offline / air-gapped deployments, you can:
-1. Pre-download the model files once.
-2. Point the module at the local directory using `model_dir=...`
+AUTO-DOWNLOAD IS DISABLED BY DEFAULT
+------------------------------------
+Auto-download has been intentionally disabled to keep environment size and
+dependency count under control in large corporate setups.
 
-MANUAL / OFFLINE LOADING
-------------------------
-Pass `model_dir` pointing to a folder containing:
-    - model.onnx
-    - model.onnx.json
-
-Example:
-    synthesizer = VoiceSynthesizer(model_dir="/path/to/voices/kathleen")
+You **must** either:
+- Provide `model_dir=...` pointing to a pre-downloaded Piper voice, **or**
+- Explicitly set `allow_auto_download=True` (development only, adds extra dependencies)
 
 RECOMMENDED VOICES (Female, warmer/contralto-leaning)
 -----------------------------------------------------
 - en_US-kathleen-medium   (good default - warm, mature female)
-- en_US-amy-medium        (clear and pleasant)
-- en_US-jenny_dioco-medium (natural, less bright)
+- en_US-amy-medium
+- en_US-jenny_dioco-medium
 
-You can change the default voice by passing `voice="en_US-amy-medium"` etc.
-"""
+Load example:
+    synthesizer = VoiceSynthesizer(model_dir="/models/en_US-kathleen-medium")
+
+**Backend Note (2026):** Piper TTS is the current engine. Kokoro-82M (ONNX) is noted as a credible future alternative if further reductions in environment size or dependency surface become necessary. See CORPORATE_DEPLOYMENT.md for details.
 
 from __future__ import annotations
 
@@ -55,7 +52,6 @@ import numpy as np
 
 try:
     from piper import PiperVoice
-    from piper.download import ensure_voice_exists, get_voices
     PIPER_AVAILABLE = True
 except ImportError:
     PIPER_AVAILABLE = False
@@ -93,21 +89,22 @@ class VoiceSynthesizer:
         self,
         voice: str = "auto",
         model_dir: Optional[Union[str, Path]] = None,
-        download_dir: Optional[Union[str, Path]] = None,
         use_cuda: bool = False,
+        allow_auto_download: bool = False,
     ):
         """
         Initialize the synthesizer.
 
         Args:
-            voice: Name of the Piper voice to use (e.g. "en_US-kathleen-medium").
-                   Use "auto" to let the module pick a good default female voice.
-            model_dir: Path to a local directory containing a Piper model
-                       (model.onnx + model.onnx.json). If provided, no network
-                       access will be used.
-            download_dir: Where to store downloaded voices. Defaults to
-                          ~/.local/share/piper or similar.
-            use_cuda: Whether to attempt GPU acceleration (limited support in Piper).
+            voice: Name of the Piper voice (e.g. "en_US-kathleen-medium").
+                   Ignored if `model_dir` is provided.
+            model_dir: Path to a folder containing `model.onnx` and `model.onnx.json`.
+                       **Strongly recommended** for production and air-gapped environments.
+            use_cuda: Attempt to use CUDA (limited support).
+            allow_auto_download: If True, will attempt to auto-download the voice
+                                 using huggingface_hub. This adds extra dependencies
+                                 and is **not recommended** for corporate / large environments.
+                                 Default is False.
         """
         if not PIPER_AVAILABLE:
             raise ImportError(
@@ -115,70 +112,55 @@ class VoiceSynthesizer:
                 "Install with: pip install piper-tts"
             )
 
-        self.download_dir = Path(download_dir) if download_dir else None
         self.use_cuda = use_cuda
-
-        # Resolve voice
-        if voice == "auto":
-            voice = DEFAULT_VOICE
-
-        self.voice_name = voice
-        self.model_dir = Path(model_dir) if model_dir else None
-
         self._voice: Optional[PiperVoice] = None
 
-        # Load or download the voice
-        self._load_or_download_voice()
-
-    def _load_or_download_voice(self):
-        """Load a local model or auto-download the requested voice."""
-        if self.model_dir:
-            # Manual / offline mode - strict local loading
-            model_path = self.model_dir / "model.onnx"
-            config_path = self.model_dir / "model.onnx.json"
+        if model_dir:
+            # === Preferred path: Fully manual / offline loading ===
+            model_dir = Path(model_dir)
+            model_path = model_dir / "model.onnx"
+            config_path = model_dir / "model.onnx.json"
 
             if not model_path.exists() or not config_path.exists():
                 raise FileNotFoundError(
-                    f"Could not find Piper model files in {self.model_dir}. "
-                    f"Expected 'model.onnx' and 'model.onnx.json'."
+                    f"Piper model files not found in {model_dir}.\n"
+                    f"Expected: model.onnx and model.onnx.json\n\n"
+                    f"Download voices manually from: https://huggingface.co/rhasspy/piper-voices"
                 )
 
-            print(f"[VoiceSynthesizer] Loading local Piper model from {self.model_dir}...")
+            print(f"[VoiceSynthesizer] Loading Piper model from {model_dir} (offline mode)...")
+
+            # CUDA warning for Piper (its CUDA support is limited compared to PyTorch)
+            if use_cuda:
+                print("[VoiceSynthesizer] WARNING: use_cuda=True was requested for Piper. "
+                      "Piper's CUDA/ONNX support is limited and often less reliable than CPU on many systems. "
+                      "Consider running Piper on CPU unless you have validated CUDA performance in your environment.")
+
             self._voice = PiperVoice.load(
                 str(model_path),
                 config_path=str(config_path),
-                use_cuda=self.use_cuda,
+                use_cuda=use_cuda,
             )
-            print("[VoiceSynthesizer] Local model loaded successfully (offline mode).")
-            return
+            self.voice_name = voice if voice != "auto" else model_dir.name
+            print("[VoiceSynthesizer] Model loaded successfully.")
 
-        # Auto-download mode (convenience)
-        print(f"[VoiceSynthesizer] Ensuring voice '{self.voice_name}' is available...")
-        start = time.time()
+        elif allow_auto_download:
+            # This path is intentionally limited and documented as "development only"
+            # because it pulls in additional dependencies and can bloat the environment.
+            raise NotImplementedError(
+                "Auto-download support has been disabled in this version to keep "
+                "dependency count and environment size under control.\n\n"
+                "Recommended approach for all environments:\n"
+                "1. Download a voice from https://huggingface.co/rhasspy/piper-voices\n"
+                "2. Load it with: VoiceSynthesizer(model_dir=...)"
+            )
 
-        # This will download if not present
-        ensure_voice_exists(
-            self.voice_name,
-            data_dir=str(self.download_dir) if self.download_dir else None,
-        )
-
-        # Find the downloaded model
-        voices_info = get_voices(
-            str(self.download_dir) if self.download_dir else None
-        )
-        voice_info = voices_info[self.voice_name]
-
-        model_path = voice_info["files"]["model.onnx"]["path"]
-        config_path = voice_info["files"]["model.onnx.json"]["path"]
-
-        self._voice = PiperVoice.load(
-            model_path,
-            config_path=config_path,
-            use_cuda=self.use_cuda,
-        )
-
-        elapsed = time.time() - start
-        print(f"[VoiceSynthesizer] Voice '{self.voice_name}' ready (loaded in {elapsed:.1f}s).")
+        else:
+            raise ValueError(
+                "You must provide `model_dir` pointing to a pre-downloaded Piper voice.\n"
+                "Auto-download has been disabled to reduce environment bloat.\n"
+                "See the module docstring for download instructions."
+            )
 
     # ------------------------------------------------------------------ #
     # Core synthesis methods
@@ -349,18 +331,5 @@ if __name__ == "__main__":
     print("VoiceSynthesizer - Quick Test")
     print("=" * 60)
 
-    # This will auto-download a voice on first run
-    synthesizer = VoiceSynthesizer(voice="auto")
-
-    print("\nVoice info:", synthesizer.get_voice_info())
-
-    test_text = "Hello. This is a test of the local voice synthesizer."
-
-    print(f"\nSynthesizing: \"{test_text}\"")
-    result = synthesizer.synthesize(test_text)
-    print(f"Generated {result.duration:.2f} seconds of audio at {result.sample_rate} Hz.")
-
-    # Optional: Play it
-    # synthesizer.speak(test_text)
-
-    print("\nTest complete. Use synthesize_stream() for real-time playback with buffering.")
+    print("Note: VoiceSynthesizer now requires model_dir for reliable use.")
+    print("See CORPORATE_DEPLOYMENT.md for corporate deployment guidance.")
